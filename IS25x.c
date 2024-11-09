@@ -2,14 +2,22 @@
 
 #include "spi_dma.h"
 
-static inline uint8_t spi_transfer_8_no_cs(uint8_t data) {
+#define NOP asm volatile("nop")
+
+static inline void spi_cs_low(uint8_t cs) { funDigitalWrite(cs, FUN_LOW); }
+static inline void spi_cs_high(uint8_t cs) { funDigitalWrite(cs, FUN_HIGH); }
+
+static inline uint8_t spi_transfar_8_no_cs(uint8_t data) {
     SPI_write_8(data);
     SPI_wait_TX_complete();
     asm volatile("nop");
     SPI_wait_RX_available();
     return SPI_read_8();
 }
-void is25x_init(IS25x *self, uint8_t cs) { self->cs = cs; }
+void is25x_init(IS25x *self, uint8_t cs) {
+    self->cs = cs;
+    funPinMode(cs, FUN_OUTPUT);
+}
 
 void is25x_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
     spi_dma_read_init(len, sizeof(uint8_t));
@@ -19,27 +27,19 @@ void is25x_write(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {}
 void is25x_chip_erase(IS25x *self) {}
 void is25x_write_enable(IS25x *self) {}
 uint8_t is25x_read_status_register(IS25x *self) {}
+// DataSheet p.64
 IS25x_JEDEC_ProductID is25x_read_jedec_product_identification(IS25x *self) {
     IS25x_JEDEC_ProductID result;
 
-    SPI_NSS_software_low();
+    spi_cs_low(self->cs);
 
-    SPI_write_8(IS25X_RDJDID);
-    SPI_wait_TX_complete();
-    asm volatile("nop");
+    spi_transfar_8_no_cs(IS25X_RDJDID);
 
-    SPI_wait_RX_available();
-    result.manufacturer_id = SPI_read_8();
-    asm volatile("nop");  // maybe unnecessary?
+    result.manufacturer_id = spi_transfar_8_no_cs(0);
+    result.memory_type     = spi_transfar_8_no_cs(0);
+    result.capacity        = spi_transfar_8_no_cs(0);
 
-    SPI_wait_RX_available();
-    result.memory_type = SPI_read_8();
-    asm volatile("nop");
-
-    SPI_wait_RX_available();
-    result.capacity = SPI_read_8();
-
-    SPI_NSS_software_high();
+    spi_cs_high(self->cs);
     return result;
 }
 void is25x_erase_information_row(IS25x *self, uint32_t addr) {}
