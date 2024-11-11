@@ -21,14 +21,14 @@ typedef enum {
 void spi_dma_write_init(uint32_t msize, uint32_t psize);
 void spi_dma_write_single_shot(void* src, uint16_t len, uint32_t priority);
 void spi_dma_write_start_cyclic(void* src, uint16_t len, uint32_t priority);
-void spi_dma_write_continue_cyclic();
-void spi_dma_write_end_cyclic();
-spi_dma_status_t spi_dma_write_status();
+void spi_dma_write_continue_cyclic(void);
+void spi_dma_write_end_cyclic(void);
+spi_dma_status_t spi_dma_write_status(void);
 
 void spi_dma_read_init(uint32_t msize, uint32_t psize);
 void spi_dma_read_single_shot(void* dst, uint16_t len, uint32_t priority);
 void spi_dma_read_start_cyclic(void* dst, uint16_t len, uint32_t priority);
-void spi_dma_read_continue_cyclic();
-void spi_dma_read_end_cyclic();
-spi_dma_status_t spi_dma_read_status();
+void spi_dma_read_continue_cyclic(void);
+void spi_dma_read_end_cyclic(void);
+spi_dma_status_t spi_dma_read_status(void);
 #endif
