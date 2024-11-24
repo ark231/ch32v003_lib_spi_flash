@@ -36,6 +36,18 @@ void is25x_init(IS25x *self, uint8_t cs) {
     funPinMode(cs, FUN_OUTPUT);
 }
 
+uint8_t dummy_tx;
+
+void SPI1_IRQHandler(void) __attribute__((interrupt));  // NOLINT(readability-identifier-naming)
+void SPI1_IRQHandler(void) {
+    uint16_t stat = SPI1->STATR;
+    if (stat & SPI_STATR_TXE) {
+        SPI_write_8(dummy_tx);
+    } else if (stat & SPI_STATR_RXNE) {
+        SPI_read_8();
+    }
+}
+
 void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
     spi_cs_low(self->cs);
 
@@ -50,6 +62,30 @@ void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
     /* spi_dma_read_init(len, sizeof(uint8_t)); */
     /* spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh); */
 
+    spi_cs_high(self->cs);
+}
+
+void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
+    spi_cs_low(self->cs);
+
+    spi_transfar_8_no_cs(IS25X_NORD);
+    spi_transfar_24be_no_cs(addr);
+
+    dummy_tx = 0xff;
+    /* spi_dma_enable_rx(); */
+    /* spi_dma_enable_tx(); */
+    /* spi_dma_read_init(DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte); */
+    spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh, true, DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte);
+    /* spi_dma_write_single_shot(&devff, len, DMA_Priority_High, false); */
+    SPI1->CTLR2 |= SPI_CTLR2_TXEIE;
+    NVIC_EnableIRQ(SPI1_IRQn);
+}
+bool is25x_dma_read_is_completed(IS25x *self) { return spi_dma_read_status() == DMA_FINISHED; }
+void is25x_end_dma_read(IS25x *self) {
+    spi_dma_disable_rx();
+    /* spi_dma_disable_tx(); */
+    SPI1->CTLR2 |= ~SPI_CTLR2_TXEIE;
+    NVIC_DisableIRQ(SPI1_IRQn);
     spi_cs_high(self->cs);
 }
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {

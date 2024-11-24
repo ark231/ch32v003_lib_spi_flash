@@ -1,7 +1,7 @@
 #ifndef CH32V003_LIB_SPI_FLASH_IS25X
 #define CH32V003_LIB_SPI_FLASH_IS25X
 // clang-format off
-#include "funconfig.h" // NOLINT(clangd-unused-includes)
+#include "funconfig.h" // NOLINT(unused-includes)
 #include <ch32v003_SPI.h>
 // clang-format on
 #include <stdint.h>
@@ -41,7 +41,7 @@ void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len);
 // nonblocking read operation using dma
 void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len);
 bool is25x_dma_read_is_completed(IS25x *self);
-bool is25x_end_dma_read(IS25x *self);
+void is25x_end_dma_read(IS25x *self);
 
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len);
 
