@@ -23,49 +23,26 @@ void SPI1_IRQHandler(void) {
 }
 
 void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
-    uint16_t dbg[10] = {0};
     spi_cs_low(self->cs);
 
-    dbg[0] = SPI1->STATR;
-
-    /* spi_set_1line_txonly(); */
     spi_transfar_8_no_cs(IS25X_NORD);
     SPI_wait_not_busy();
-    dbg[1] = SPI1->STATR;
     spi_transfar_24be_no_cs(addr);
     SPI_wait_not_busy();
-    dbg[2] = SPI1->STATR;
-    /* spi_write_8_no_rx(IS25X_NORD); */
-    /* spi_write_24be_no_rx(addr); */
     spi_set_2line_rxonly();
-    /* SPI_wait_RX_available(); */
-    /* SPI_read_8(); */
-    /* SPI_wait_not_busy(); */
-    dbg[3] = SPI1->STATR;
     for (size_t i = 0; i < len; i++) {
         dst[i] = spi_read_8_no_tx();
-        /* dst[i] = spi_transfar_8_no_cs(0xff); */
     }
-    dbg[4] = SPI1->STATR;
     if (SPI1->STATR & SPI_STATR_RXNE) {
         SPI_read_8();
     }
-    /* SPI_wait_not_busy(); */
-    dbg[5] = SPI1->STATR;
     spi_set_2line_fullduplex();
-    /* SPI_wait_not_busy(); */
-    dbg[6] = SPI1->STATR;
 
     spi_cs_high(self->cs);
-    dbg[7] = SPI1->STATR;
     // HACK: it seems one byte is left in the rx buffer causing issue later, so read it and problem solved. I obviously
     // DON'T KNOW  WHY.
     if (SPI1->STATR & SPI_STATR_RXNE) {
         SPI_read_8();
-    }
-    dbg[8] = SPI1->STATR;
-    for (size_t i = 0; i < sizeof(dbg) / sizeof(dbg[0]); i++) {
-        printf("%d: %04X\n", i, dbg[i]);
     }
 }
 
