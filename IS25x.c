@@ -1,35 +1,9 @@
 #include "IS25x.h"
 
+#include <stdio.h>
+
 #include "spi_dma.h"
-
-#define NOP __NOP
-
-static inline void spi_cs_low(uint8_t cs) { funDigitalWrite(cs, FUN_LOW); }
-static inline void spi_cs_high(uint8_t cs) { funDigitalWrite(cs, FUN_HIGH); }
-
-static inline uint8_t spi_transfar_8_no_cs(uint8_t data) {
-    SPI_write_8(data);
-    SPI_wait_TX_complete();
-    NOP();
-    SPI_wait_RX_available();
-    return SPI_read_8();
-}
-
-static inline uint32_t spi_transfar_24be_no_cs(uint32_t data) {
-    uint32_t result = 0;
-    result |= spi_transfar_8_no_cs((data >> 16) & 0xff) << 16;
-    result |= spi_transfar_8_no_cs((data >> 8) & 0xff) << 8;
-    result |= spi_transfar_8_no_cs((data) & 0xff);
-    return result;
-}
-
-static inline uint8_t spi_transfar_8_with_cs(uint8_t cs, uint8_t data) {
-    uint8_t result;
-    spi_cs_low(cs);
-    result = spi_transfar_8_no_cs(data);
-    spi_cs_high(cs);
-    return result;
-}
+#include "spi_helper.h"
 
 void is25x_init(IS25x *self, uint8_t cs) {
     self->cs = cs;
@@ -49,20 +23,50 @@ void SPI1_IRQHandler(void) {
 }
 
 void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
+    uint16_t dbg[10] = {0};
     spi_cs_low(self->cs);
 
-    spi_transfar_8_no_cs(IS25X_NORD);
-    spi_transfar_24be_no_cs(addr);
-    for (size_t i = 0; i < len; i++) {
-        dst[i] = spi_transfar_8_no_cs(0xff);  // HACK: writing 0 resulted in unstable behaviour, and writing 0xff solved
-                                              // it. I TOTALLY DON'T KNOW WHY!!!
-        NOP();
-    }
+    dbg[0] = SPI1->STATR;
 
-    /* spi_dma_read_init(len, sizeof(uint8_t)); */
-    /* spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh); */
+    /* spi_set_1line_txonly(); */
+    spi_transfar_8_no_cs(IS25X_NORD);
+    SPI_wait_not_busy();
+    dbg[1] = SPI1->STATR;
+    spi_transfar_24be_no_cs(addr);
+    SPI_wait_not_busy();
+    dbg[2] = SPI1->STATR;
+    /* spi_write_8_no_rx(IS25X_NORD); */
+    /* spi_write_24be_no_rx(addr); */
+    spi_set_2line_rxonly();
+    /* SPI_wait_RX_available(); */
+    /* SPI_read_8(); */
+    /* SPI_wait_not_busy(); */
+    dbg[3] = SPI1->STATR;
+    for (size_t i = 0; i < len; i++) {
+        dst[i] = spi_read_8_no_tx();
+        /* dst[i] = spi_transfar_8_no_cs(0xff); */
+    }
+    dbg[4] = SPI1->STATR;
+    if (SPI1->STATR & SPI_STATR_RXNE) {
+        SPI_read_8();
+    }
+    /* SPI_wait_not_busy(); */
+    dbg[5] = SPI1->STATR;
+    spi_set_2line_fullduplex();
+    /* SPI_wait_not_busy(); */
+    dbg[6] = SPI1->STATR;
 
     spi_cs_high(self->cs);
+    dbg[7] = SPI1->STATR;
+    // HACK: it seems one byte is left in the rx buffer causing issue later, so read it and problem solved. I obviously
+    // DON'T KNOW  WHY.
+    if (SPI1->STATR & SPI_STATR_RXNE) {
+        SPI_read_8();
+    }
+    dbg[8] = SPI1->STATR;
+    for (size_t i = 0; i < sizeof(dbg) / sizeof(dbg[0]); i++) {
+        printf("%d: %04X\n", i, dbg[i]);
+    }
 }
 
 void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
@@ -70,22 +74,14 @@ void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) 
 
     spi_transfar_8_no_cs(IS25X_NORD);
     spi_transfar_24be_no_cs(addr);
+    spi_set_2line_rxonly();
 
-    dummy_tx = 0xff;
-    /* spi_dma_enable_rx(); */
-    /* spi_dma_enable_tx(); */
-    /* spi_dma_read_init(DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte); */
     spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh, true, DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte);
-    /* spi_dma_write_single_shot(&devff, len, DMA_Priority_High, false); */
-    SPI1->CTLR2 |= SPI_CTLR2_TXEIE;
-    NVIC_EnableIRQ(SPI1_IRQn);
 }
 bool is25x_dma_read_is_completed(IS25x *self) { return spi_dma_read_status() == DMA_FINISHED; }
 void is25x_end_dma_read(IS25x *self) {
     spi_dma_disable_rx();
-    /* spi_dma_disable_tx(); */
-    SPI1->CTLR2 |= ~SPI_CTLR2_TXEIE;
-    NVIC_DisableIRQ(SPI1_IRQn);
+    spi_set_2line_fullduplex();
     spi_cs_high(self->cs);
 }
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
@@ -93,9 +89,13 @@ void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
 
     spi_transfar_8_no_cs(IS25X_PP);
     spi_transfar_24be_no_cs(addr);
+
+    /* spi_set_1line_txonly(); */
     for (size_t i = 0; i < len; i++) {
         spi_transfar_8_no_cs(src[i]);
+        /* spi_write_8_no_rx(src[i]); */
     }
+    /* spi_set_2line_fullduplex(); */
 
     spi_cs_high(self->cs);
 }
