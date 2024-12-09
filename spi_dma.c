@@ -90,13 +90,22 @@ void spi_dma_read_start_circular(void* dst, uint16_t len, uint32_t priority, boo
 void spi_dma_read_continue_circular() { DMA1_Channel2->CFGR |= DMA_CFGR2_EN; }
 void spi_dma_read_end_circular() { DMA1_Channel2->CFGR &= ~DMA_CFGR2_CIRC; }
 spi_dma_status_t spi_dma_read_status() {
-    if (DMA1->INTFR & DMA_TEIF2) {
-        DMA1->INTFCR &= DMA_CTEIF2;
-        return DMA_ERROR;
+    spi_dma_status_t result = DMA_RUNNING;
+    // latter condition has higher priority
+    if (DMA1->INTFR & DMA_HTIF2) {
+        DMA1->INTFCR |= DMA_CHTIF2;
+        DMA1->INTFCR |= DMA_CGIF2;
+        result = DMA_RUNNING;
     }
     if (DMA1->INTFR & DMA_TCIF2) {
-        DMA1->INTFCR &= DMA_CTCIF2;
-        return DMA_FINISHED;
+        DMA1->INTFCR |= DMA_CTCIF2;
+        DMA1->INTFCR |= DMA_CGIF2;
+        result = DMA_FINISHED;
     }
-    return DMA_RUNNING;
+    if (DMA1->INTFR & DMA_TEIF2) {
+        DMA1->INTFCR |= DMA_CTEIF2;
+        DMA1->INTFCR |= DMA_CGIF2;
+        result = DMA_ERROR;
+    }
+    return result;
 }

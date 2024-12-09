@@ -44,13 +44,16 @@ void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
     if (SPI1->STATR & SPI_STATR_RXNE) {
         SPI_read_8();
     }
+    // as long as it works, it is a "right" code, isn't it?
 }
 
 void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) {
     spi_cs_low(self->cs);
 
     spi_transfar_8_no_cs(IS25X_NORD);
+    SPI_wait_not_busy();
     spi_transfar_24be_no_cs(addr);
+    SPI_wait_not_busy();
     spi_set_2line_rxonly();
 
     spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh, true, DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte);
@@ -59,7 +62,13 @@ bool is25x_dma_read_is_completed(IS25x *self) { return spi_dma_read_status() == 
 void is25x_end_dma_read(IS25x *self) {
     spi_dma_disable_rx();
     spi_set_2line_fullduplex();
+    if (SPI1->STATR & SPI_STATR_RXNE) {
+        SPI_read_8();
+    }
     spi_cs_high(self->cs);
+    if (SPI1->STATR & SPI_STATR_RXNE) {
+        SPI_read_8();
+    }
 }
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
     spi_cs_low(self->cs);

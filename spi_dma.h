@@ -8,7 +8,7 @@ typedef enum {
 } spi_err_t;
 
 typedef enum {
-    DMA_RUNNING,
+    DMA_RUNNING,  // including halfway
     DMA_FINISHED,
     DMA_ERROR,
 } spi_dma_status_t;
