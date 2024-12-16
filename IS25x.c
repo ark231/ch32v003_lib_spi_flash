@@ -109,17 +109,18 @@ void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
     SPI_wait_not_busy();
     dbg[1] = SPI1->CTLR1;
 
-    /* spi_set_1line_txonly(); */
+    spi_set_1line_txonly();
     dbg[2] = SPI1->CTLR1;
     for (size_t i = 0; i < len; i++) {
-        spi_transfar_8_no_cs(src[i]);
-        /* spi_write_8_no_rx(src[i]); */
+        /* spi_transfar_8_no_cs(src[i]); */
+        spi_write_8_no_rx(src[i]);
     }
     dbg[3] = SPI1->CTLR1;
 
     spi_cs_high(self->cs);
-    /* spi_set_2line_fullduplex(); */
-    /* SPI_read_8(); */
+    spi_set_2line_fullduplex();
+    SPI_wait_RX_available();
+    SPI_read_8();
     dbg[4] = SPI1->CTLR1;
     char buf[17];
     for (size_t i = 0; i < sizeof(dbg) / sizeof(dbg[0]); i++) {
