@@ -2,7 +2,6 @@
 
 #include <ch32v003fun.h>
 #include <inttypes.h>
-#include <stdio.h>
 
 void spi_dma_enable_tx(void) { SPI1->CTLR2 |= SPI_I2S_DMAReq_Tx; }
 void spi_dma_disable_tx(void) { SPI1->CTLR2 &= ~SPI_I2S_DMAReq_Tx; }
@@ -71,6 +70,11 @@ void spi_dma_common_read(void* dst, uint16_t len, uint32_t priority, bool auto_i
         DMA1_Channel2->CFGR &= ~DMA_CFGR2_MINC;  // disable auto increment
     }
     DMA1_Channel2->CFGR &= ~DMA_CFGR2_PINC;
+
+    DMA1_Channel2->CFGR |= DMA_CFGR2_TCIE;
+
+    NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+    spi_dma_read_is_running = true;
 }
 
 void spi_dma_read_single_shot(void* dst, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth,
@@ -109,3 +113,4 @@ spi_dma_status_t spi_dma_read_status() {
     }
     return result;
 }
+volatile bool spi_dma_read_is_running = false;

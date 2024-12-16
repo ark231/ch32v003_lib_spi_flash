@@ -41,7 +41,7 @@ void is25x_read_no_dma(IS25x *self, uint32_t addr, uint8_t *dst, size_t len);
 // nonblocking read operation using dma
 void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len);
 bool is25x_dma_read_is_completed(IS25x *self);
-void is25x_end_dma_read(IS25x *self);
+void is25x_end_dma_read(volatile IS25x *self);  // private, do not call from user code
 
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len);
 

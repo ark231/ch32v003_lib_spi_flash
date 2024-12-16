@@ -20,8 +20,11 @@ typedef enum {
 // DMA_Priority_*
 void spi_dma_enable_tx(void);
 void spi_dma_disable_tx(void);
+
+extern volatile bool spi_dma_read_is_running;
 /**
  * @brief initialize dma write with spi
+ * @note interrupt handler for ending transmission is required
  *
  * @param mwidth memory address data width
  * @param pwidthperipheral data width
