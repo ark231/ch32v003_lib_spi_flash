@@ -2,6 +2,9 @@
 
 #include <ch32v003fun.h>
 #include <inttypes.h>
+#include <stdint.h>
+volatile bool spi_dma_read_is_running_p  = false;
+volatile bool spi_dma_write_is_running_p = false;
 
 void spi_dma_enable_tx(void) { SPI1->CTLR2 |= SPI_I2S_DMAReq_Tx; }
 void spi_dma_disable_tx(void) { SPI1->CTLR2 &= ~SPI_I2S_DMAReq_Tx; }
@@ -16,26 +19,44 @@ void spi_dma_write_init(uint32_t mwidth, uint32_t pwidth) {
     DMA1_Channel3->CFGR |= DMA_DIR_PeripheralDST;
 }
 
-void spi_dma_common_write(void* src, uint16_t len, uint32_t priority, bool auto_inc) {
-    DMA1_Channel3->CNTR  = len;
+void spi_dma_common_write(void* src, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth, uint32_t pwidth) {
+    RCC->AHBPCENR |= RCC_AHBPeriph_DMA1;
+    DMA1_Channel3->PADDR = (uint32_t)(&SPI1->DATAR);
     DMA1_Channel3->MADDR = (uint32_t)src;  // the power of C HAHAHA
+    DMA1_Channel3->CNTR  = len;
+    DMA1_Channel3->CFGR |= priority;
+
+    DMA1_Channel3->CFGR &= ~(DMA_CFGR3_MSIZE | DMA_CFGR3_PSIZE | DMA_CFGR3_DIR);
+    DMA1_Channel3->CFGR |= mwidth;
+    DMA1_Channel3->CFGR |= pwidth;
+    DMA1_Channel3->CFGR |= DMA_DIR_PeripheralDST;
     if (auto_inc) {
         DMA1_Channel3->CFGR |= DMA_MemoryInc_Enable;
     } else {
         DMA1_Channel3->CFGR &= ~DMA_CFGR3_MINC;  // disable auto increment
     }
-    DMA1_Channel2->CFGR &= ~DMA_CFGR2_PINC;
-    DMA1_Channel3->PADDR = (uint32_t)(&SPI1->DATAR);
-    DMA1_Channel3->CNTR  = len;
+    DMA1_Channel3->CFGR &= ~DMA_CFGR3_PINC;
+
+    DMA1_Channel3->CFGR |= DMA_CFGR3_TCIE;
+
+    NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+    spi_dma_write_is_running_p = true;
+    return;
 }
 
-void spi_dma_write_single_shot(void* src, uint16_t len, uint32_t priority, bool auto_inc) {
-    spi_dma_common_write(src, len, priority, auto_inc);
+void spi_dma_write_single_shot(void* src, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth,
+                               uint32_t pwidth) {
+    spi_dma_enable_tx();
+    DMA1_Channel3->CFGR &= ~DMA_CFGR3_EN;
+    spi_dma_common_write(src, len, priority, auto_inc, mwidth, pwidth);
     DMA1_Channel3->CFGR &= ~DMA_CFGR3_CIRC;  // disable circular mode
     DMA1_Channel3->CFGR |= DMA_CFGR3_EN;
 }
-void spi_dma_write_start_circular(void* src, uint16_t len, uint32_t priority, bool auto_inc) {
-    spi_dma_common_write(src, len, priority, auto_inc);
+void spi_dma_write_start_circular(void* src, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth,
+                                  uint32_t pwidth) {
+    spi_dma_enable_tx();
+    DMA1_Channel3->CFGR &= ~DMA_CFGR3_EN;
+    spi_dma_common_write(src, len, priority, auto_inc, mwidth, pwidth);
     DMA1_Channel3->CFGR |= DMA_Mode_Circular;
     DMA1_Channel3->CFGR |= DMA_CFGR3_EN;
 }
@@ -51,6 +72,11 @@ spi_dma_status_t spi_dma_write_status() {
         return DMA_FINISHED;
     }
     return DMA_RUNNING;
+}
+bool spi_dma_write_is_running() { return spi_dma_write_is_running_p; }
+void spi_dma_on_write_completed() {
+    spi_dma_write_is_running_p = false;
+    spi_dma_disable_tx();
 }
 
 void spi_dma_common_read(void* dst, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth, uint32_t pwidth) {
@@ -74,7 +100,7 @@ void spi_dma_common_read(void* dst, uint16_t len, uint32_t priority, bool auto_i
     DMA1_Channel2->CFGR |= DMA_CFGR2_TCIE;
 
     NVIC_EnableIRQ(DMA1_Channel2_IRQn);
-    spi_dma_read_is_running = true;
+    spi_dma_read_is_running_p = true;
 }
 
 void spi_dma_read_single_shot(void* dst, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth,
@@ -88,6 +114,7 @@ void spi_dma_read_single_shot(void* dst, uint16_t len, uint32_t priority, bool a
 void spi_dma_read_start_circular(void* dst, uint16_t len, uint32_t priority, bool auto_inc, uint32_t mwidth,
                                  uint32_t pwidth) {
     spi_dma_common_read(dst, len, priority, auto_inc, mwidth, pwidth);
+    DMA1_Channel2->CFGR &= ~DMA_CFGR2_EN;
     DMA1_Channel2->CFGR |= DMA_Mode_Circular;
     DMA1_Channel2->CFGR |= DMA_CFGR2_EN;
 }
@@ -113,4 +140,8 @@ spi_dma_status_t spi_dma_read_status() {
     }
     return result;
 }
-volatile bool spi_dma_read_is_running = false;
+bool spi_dma_read_is_running() { return spi_dma_read_is_running_p; }
+void spi_dma_on_read_completed() {
+    spi_dma_read_is_running_p = false;
+    spi_dma_disable_rx();
+}

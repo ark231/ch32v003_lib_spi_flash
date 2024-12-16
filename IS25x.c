@@ -26,7 +26,7 @@ void SPI1_IRQHandler(void) {
     }
 }
 
-volatile IS25x *running = NULL;
+volatile IS25x *read_running = NULL;
 
 void DMA1_Channel2_IRQHandler(void) ATTR_INTERRUPT;  // NOLINT(readability-identifier-naming)
 void DMA1_Channel2_IRQHandler(void) {
@@ -38,8 +38,29 @@ void DMA1_Channel2_IRQHandler(void) {
         DMA1->INTFCR = 0xFFFFFFFF;
 
         if (intfr & DMA1_IT_TC2) {  // Transmission complete
-            is25x_end_dma_read(running);
-            spi_dma_read_is_running = false;
+            is25x_end_dma_read_p(read_running);
+            spi_dma_on_read_completed();
+            read_running = NULL;
+        }
+
+        intfr = DMA1->INTFR;
+    } while (intfr);
+}
+
+volatile IS25x *write_running = NULL;
+void DMA1_Channel3_IRQHandler(void) ATTR_INTERRUPT;  // NOLINT(readability-identifier-naming)
+void DMA1_Channel3_IRQHandler(void) {
+    // https://github.com/cnlohr/ch32v003fun/blob/8943a995ac5d5a56c7a37c54edb7de6d04252ef7/examples/dma_spi/dma_spi.c#L121
+    //  Backup flags.
+    volatile int intfr = DMA1->INTFR;
+    do {
+        // Clear all possible flags.
+        DMA1->INTFCR = 0xFFFFFFFF;
+
+        if (intfr & DMA1_IT_TC3) {  // Transmission complete
+            is25x_end_dma_write_p(write_running);
+            spi_dma_on_write_completed();
+            write_running = NULL;
         }
 
         intfr = DMA1->INTFR;
@@ -79,16 +100,15 @@ void is25x_begin_dma_read(IS25x *self, uint32_t addr, uint8_t *dst, size_t len) 
     SPI_wait_not_busy();
     spi_set_2line_rxonly();
 
-    running = self;
+    read_running = self;
     spi_dma_read_single_shot(dst, len, DMA_Priority_VeryHigh, true, DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte);
 }
 bool is25x_dma_read_is_completed(IS25x *self) {
     /* return spi_dma_read_status() == DMA_FINISHED;  */
-    return not spi_dma_read_is_running;
+    return not spi_dma_read_is_running();
 }
-void is25x_end_dma_read(volatile IS25x *self) {
+void is25x_end_dma_read_p(volatile IS25x *self) {
     spi_cs_high(self->cs);
-    spi_dma_disable_rx();
     if (SPI1->STATR & SPI_STATR_RXNE) {
         SPI_read_8();
     }
@@ -99,35 +119,46 @@ void is25x_end_dma_read(volatile IS25x *self) {
     }
 }
 void is25x_write_no_dma(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
-    uint16_t dbg[10] = {0};
     spi_cs_low(self->cs);
-    dbg[0] = SPI1->CTLR1;
 
     spi_transfar_8_no_cs(IS25X_PP);
     SPI_wait_not_busy();
     spi_transfar_24be_no_cs(addr);
     SPI_wait_not_busy();
-    dbg[1] = SPI1->CTLR1;
 
     spi_set_1line_txonly();
-    dbg[2] = SPI1->CTLR1;
     for (size_t i = 0; i < len; i++) {
         /* spi_transfar_8_no_cs(src[i]); */
         spi_write_8_no_rx(src[i]);
     }
-    dbg[3] = SPI1->CTLR1;
 
     spi_cs_high(self->cs);
     spi_set_2line_fullduplex();
     SPI_wait_RX_available();
     SPI_read_8();
-    dbg[4] = SPI1->CTLR1;
-    char buf[17];
-    for (size_t i = 0; i < sizeof(dbg) / sizeof(dbg[0]); i++) {
-        to_string_u16b(dbg[i], buf, sizeof(buf));
-        printf("%d: %s\n", i, buf);
-    }
 }
+
+void is25x_begin_dma_write(IS25x *self, uint32_t addr, uint8_t *src, size_t len) {
+    spi_cs_low(self->cs);
+
+    spi_transfar_8_no_cs(IS25X_PP);
+    SPI_wait_not_busy();
+    spi_transfar_24be_no_cs(addr);
+    SPI_wait_not_busy();
+
+    spi_set_1line_txonly();
+
+    write_running = self;
+    spi_dma_write_single_shot(src, len, DMA_Priority_VeryHigh, true, DMA_MemoryDataSize_Byte, DMA_MemoryDataSize_Byte);
+}
+bool is25x_dma_write_is_completed(IS25x *self) { return not spi_dma_write_is_running(); }
+void is25x_end_dma_write_p(volatile IS25x *self) {
+    spi_cs_high(self->cs);
+    spi_set_2line_fullduplex();
+    SPI_wait_RX_available();
+    SPI_read_8();
+}
+//
 void is25x_chip_erase(IS25x *self) { spi_transfar_8_with_cs(self->cs, IS25X_CER); }
 void is25x_write_enable(IS25x *self) { spi_transfar_8_with_cs(self->cs, IS25X_WREN); }
 uint8_t is25x_read_status_register(IS25x *self) {
